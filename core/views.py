@@ -1,4 +1,4 @@
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from rest_framework import mixins, viewsets, permissions, status
 from rest_framework.response import Response
 from .models import Profile, Post, Follow, Comment, Message
@@ -50,6 +50,12 @@ class PostViewSet(mixins.CreateModelMixin, mixins.RetrieveModelMixin,
     def perform_create(self, serializer):
         serializer.save(profile=self.request.user.profile)
 
+    def perform_update(self, serializer):
+        post = self.get_object()
+        if post.profile.user != self.request.user:
+            return Response({'error': 'You do not have permission to edit this post.'}, status=status.HTTP_403_FORBIDDEN)
+        serializer.save()
+
     def perform_destroy(self, instance):
         instance.is_deleted = True
         instance.save()
@@ -63,7 +69,7 @@ class PostViewSet(mixins.CreateModelMixin, mixins.RetrieveModelMixin,
         else:
             post.likes.add(user)
         post.save()
-        return Response({'likes_count': post.likes.count()}, status=status.HTTP_200_OK)
+        return Response({'likes_count': post.likes.count(), 'liked': user in post.likes.all()}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def share(self, request, pk=None):
@@ -81,7 +87,7 @@ class PostViewSet(mixins.CreateModelMixin, mixins.RetrieveModelMixin,
         content = request.data.get('content')
         if content:
             Comment.objects.create(post=post, profile=user.profile, content=content)
-        return Response({'comments': CommentSerializer(post.comments.all(), many=True).data},
+        return Response({'comments': CommentSerializer(post.comments.all(), many=True, context={'request': request}).data},
                         status=status.HTTP_201_CREATED)
 
 
@@ -89,6 +95,12 @@ class CommentViewSet(mixins.DestroyModelMixin, mixins.UpdateModelMixin, viewsets
     queryset = Comment.objects.all()
     serializer_class = CommentSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def perform_update(self, serializer):
+        comment = self.get_object()
+        if comment.profile.user != self.request.user:
+            return Response({'error': 'You do not have permission to edit this comment.'}, status=status.HTTP_403_FORBIDDEN)
+        serializer.save()
 
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def like(self, request, pk=None):
@@ -99,7 +111,7 @@ class CommentViewSet(mixins.DestroyModelMixin, mixins.UpdateModelMixin, viewsets
         else:
             comment.likes.add(user)
         comment.save()
-        return Response({'likes_count': comment.likes.count()}, status=status.HTTP_200_OK)
+        return Response({'likes_count': comment.likes.count(), 'liked': user in comment.likes.all()}, status=status.HTTP_200_OK)
 
 
 class FollowView(mixins.CreateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet):
@@ -109,13 +121,13 @@ class FollowView(mixins.CreateModelMixin, mixins.DestroyModelMixin, viewsets.Gen
 
     def create(self, request, *args, **kwargs):
         follower = request.user.profile
-        following = Profile.objects.get(pk=request.data['pk'])
+        following = get_object_or_404(Profile, pk=request.data['pk'])
         Follow.objects.create(follower=follower, following=following)
         return Response(status=status.HTTP_201_CREATED)
 
     def destroy(self, request, *args, **kwargs):
         follower = request.user.profile
-        following = Profile.objects.get(pk=kwargs['pk'])
+        following = get_object_or_404(Profile, pk=kwargs['pk'])
         Follow.objects.filter(follower=follower, following=following).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

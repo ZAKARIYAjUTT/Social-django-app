@@ -1,3 +1,4 @@
+from django.shortcuts import get_object_or_404
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import Profile, Post, Follow, Comment, Message
@@ -30,13 +31,18 @@ class ProfileSerializer(serializers.ModelSerializer):
 class CommentSerializer(serializers.ModelSerializer):
     profile = ProfileSerializer(read_only=True)
     likes_count = serializers.SerializerMethodField()
+    liked = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
-        fields = ['id', 'profile', 'content', 'created_at', 'likes_count']
+        fields = ['id', 'profile', 'content', 'created_at', 'likes_count', 'liked']
 
     def get_likes_count(self, obj):
         return obj.likes.count()
+
+    def get_liked(self, obj):
+        user = self.context['request'].user
+        return user in obj.likes.all()
 
 
 class PostSerializer(serializers.ModelSerializer):
@@ -45,11 +51,12 @@ class PostSerializer(serializers.ModelSerializer):
     likes_count = serializers.SerializerMethodField()
     shares_count = serializers.SerializerMethodField()
     comments_count = serializers.SerializerMethodField()
+    liked = serializers.SerializerMethodField()
 
     class Meta:
         model = Post
         fields = ['id', 'profile', 'title', 'content', 'created_at', 'is_deleted', 'likes_count', 'shares_count',
-                  'comments', 'comments_count']
+                  'comments', 'comments_count', 'liked']
 
     def get_likes_count(self, obj):
         return obj.likes.count()
@@ -59,6 +66,10 @@ class PostSerializer(serializers.ModelSerializer):
 
     def get_comments_count(self, obj):
         return obj.comments.count()
+
+    def get_liked(self, obj):
+        user = self.context['request'].user
+        return user in obj.likes.all()
 
     def create(self, validated_data):
         validated_data['profile'] = self.context['request'].user.profile
